@@ -1,0 +1,231 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Data Mahasiswa - REST API</title>
+<style>
+  * { box-sizing: border-box; }
+  body { font-family: Arial, sans-serif; background: #f3f5f9; color: #1f2937; margin: 0; }
+  header { background: #1e3a8a; color: #fff; padding: 18px 28px; }
+  header h1 { margin: 0; font-size: 22px; }
+  header p { margin: 4px 0 0; font-size: 13px; opacity: .85; }
+  main { max-width: 1100px; margin: 22px auto; padding: 0 16px; display: grid; grid-template-columns: 1.5fr 1fr; gap: 18px; }
+  @media (max-width: 860px) { main { grid-template-columns: 1fr; } }
+  .card { background: #fff; border-radius: 10px; padding: 18px; box-shadow: 0 1px 4px rgba(0,0,0,.08); margin-bottom: 18px; }
+  .card h2 { margin: 0 0 12px; font-size: 16px; }
+  table { width: 100%; border-collapse: collapse; font-size: 14px; }
+  th, td { padding: 9px 10px; text-align: left; border-bottom: 1px solid #e5e7eb; }
+  th { background: #eef2ff; color: #1e3a8a; }
+  td.aksi { white-space: nowrap; }
+  label { display: block; font-size: 13px; margin: 10px 0 4px; color: #4b5563; }
+  input { width: 100%; padding: 9px 10px; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 14px; }
+  button { cursor: pointer; border: 0; border-radius: 6px; padding: 8px 14px; font-size: 13px; font-weight: bold; color: #fff; background: #2563eb; }
+  button.kecil { padding: 5px 9px; font-size: 12px; margin-right: 3px; }
+  button.hijau { background: #16a34a; } button.kuning { background: #d97706; }
+  button.merah { background: #dc2626; } button.abu { background: #6b7280; }
+  .baris { display: flex; gap: 8px; margin-top: 12px; }
+  .baris input { flex: 1; }
+  .log { border-left: 4px solid #cbd5e1; background: #f8fafc; border-radius: 6px; padding: 8px 10px; margin-bottom: 8px; font-size: 12px; }
+  .log.ok { border-color: #16a34a; } .log.err { border-color: #dc2626; }
+  .log b { font-size: 13px; }
+  .log pre { margin: 6px 0 0; white-space: pre-wrap; word-break: break-word; font-family: Consolas, Menlo, monospace; font-size: 12px; }
+  .kosong { color: #6b7280; font-size: 13px; }
+  .tag { display: inline-block; padding: 1px 7px; border-radius: 10px; color: #fff; font-size: 11px; margin-left: 6px; }
+  .tag.ok { background: #16a34a; } .tag.err { background: #dc2626; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Data Mahasiswa</h1>
+  <p>REST API Node.js + Express.js | Nadia Fitriani - 20250040038 - TI 25C</p>
+</header>
+
+<main>
+  <section>
+    <div class="card">
+      <h2>Daftar Mahasiswa</h2>
+      <table>
+        <thead><tr><th>ID</th><th>NIM</th><th>Nama</th><th>Prodi</th><th>Aksi</th></tr></thead>
+        <tbody id="isiTabel"><tr><td colspan="5" class="kosong">Memuat data...</td></tr></tbody>
+      </table>
+      <div class="baris">
+        <button onclick="muatData()">Muat ulang (GET semua)</button>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>Cari Berdasarkan ID</h2>
+      <div class="baris" style="margin-top:0">
+        <input id="cariId" type="number" placeholder="Masukkan ID, contoh: 1 (coba juga 99)">
+        <button class="hijau" onclick="cariDetail()">Cari (GET by ID)</button>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <div class="card">
+      <h2 id="judulForm">Tambah Mahasiswa</h2>
+      <label for="nim">NIM</label><input id="nim" placeholder="2026003">
+      <label for="nama">Nama</label><input id="nama" placeholder="Citra">
+      <label for="prodi">Prodi</label><input id="prodi" placeholder="Teknik Informatika">
+      <div class="baris">
+        <button id="tombolSimpan" onclick="simpan()">Tambah (POST)</button>
+        <button class="abu" onclick="resetForm()">Batal</button>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>Log Request dan Response</h2>
+      <div id="log"><p class="kosong">Belum ada request.</p></div>
+    </div>
+  </section>
+</main>
+
+<script>
+  const BASE = "/api/mahasiswa";
+  let idEdit = null;      // jika tidak null, form sedang dalam mode ubah (PUT)
+  const riwayat = [];
+
+  // kirim request, catat ke log, kembalikan {status, json}
+  async function kirim(method, url, body) {
+    const opsi = { method, headers: {} };
+    if (body) { opsi.headers["Content-Type"] = "application/json"; opsi.body = JSON.stringify(body); }
+    const res = await fetch(url, opsi);
+    const json = await res.json();
+    catatLog(method, url, res.status, json, body);
+    return { status: res.status, json };
+  }
+
+  function catatLog(method, url, status, json, body) {
+    riwayat.unshift({ method, url, status, json, body });
+    if (riwayat.length > 8) riwayat.pop();
+    const kotak = document.getElementById("log");
+    kotak.innerHTML = "";
+    riwayat.forEach((r) => {
+      const ok = r.status < 400;
+      const div = document.createElement("div");
+      div.className = "log " + (ok ? "ok" : "err");
+      const judul = document.createElement("b");
+      judul.textContent = r.method + " " + r.url;
+      const tag = document.createElement("span");
+      tag.className = "tag " + (ok ? "ok" : "err");
+      tag.textContent = r.status;
+      judul.appendChild(tag);
+      const pre = document.createElement("pre");
+      pre.textContent = (r.body ? "Body: " + JSON.stringify(r.body) + "\n" : "") + JSON.stringify(r.json, null, 2);
+      div.appendChild(judul);
+      div.appendChild(pre);
+      kotak.appendChild(div);
+    });
+  }
+
+  function tombol(teks, kelas, fn) {
+    const b = document.createElement("button");
+    b.className = "kecil " + kelas;
+    b.textContent = teks;
+    b.onclick = fn;
+    return b;
+  }
+
+  async function muatData() {
+    const { json } = await kirim("GET", BASE);
+    const tbody = document.getElementById("isiTabel");
+    tbody.innerHTML = "";
+    if (!json.data || json.data.length === 0) {
+      tbody.innerHTML = '<tr><td colspan="5" class="kosong">Belum ada data.</td></tr>';
+      return;
+    }
+    json.data.forEach((m) => {
+      const tr = document.createElement("tr");
+      [m.id, m.nim, m.nama, m.prodi].forEach((v) => {
+        const td = document.createElement("td");
+        td.textContent = v;
+        tr.appendChild(td);
+      });
+      const aksi = document.createElement("td");
+      aksi.className = "aksi";
+      aksi.appendChild(tombol("Detail", "hijau", () => detail(m.id)));
+      aksi.appendChild(tombol("Edit", "kuning", () => mulaiEdit(m)));
+      aksi.appendChild(tombol("Hapus", "merah", () => hapus(m.id)));
+      tr.appendChild(aksi);
+      tbody.appendChild(tr);
+    });
+  }
+
+  async function detail(id) { await kirim("GET", BASE + "/" + id); }
+
+  async function cariDetail() {
+    const id = document.getElementById("cariId").value;
+    if (!id) return alert("Isi ID dulu");
+    await detail(id);
+  }
+
+  function ambilForm() {
+    return {
+      nim: document.getElementById("nim").value.trim(),
+      nama: document.getElementById("nama").value.trim(),
+      prodi: document.getElementById("prodi").value.trim(),
+    };
+  }
+
+  async function simpan() {
+    const data = ambilForm();
+    const { status } = idEdit === null
+      ? await kirim("POST", BASE, data)
+      : await kirim("PUT", BASE + "/" + idEdit, data);
+    if (status < 400) { resetForm(); }
+    muatDataTanpaLog();
+  }
+
+  function mulaiEdit(m) {
+    idEdit = m.id;
+    document.getElementById("nim").value = m.nim;
+    document.getElementById("nama").value = m.nama;
+    document.getElementById("prodi").value = m.prodi;
+    document.getElementById("judulForm").textContent = "Ubah Mahasiswa (ID " + m.id + ")";
+    document.getElementById("tombolSimpan").textContent = "Simpan Perubahan (PUT)";
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }
+
+  function resetForm() {
+    idEdit = null;
+    ["nim", "nama", "prodi"].forEach((id) => (document.getElementById(id).value = ""));
+    document.getElementById("judulForm").textContent = "Tambah Mahasiswa";
+    document.getElementById("tombolSimpan").textContent = "Tambah (POST)";
+  }
+
+  async function hapus(id) {
+    if (!confirm("Hapus mahasiswa dengan ID " + id + "?")) return;
+    await kirim("DELETE", BASE + "/" + id);
+    muatDataTanpaLog();
+  }
+
+  // muat ulang tabel tanpa menambah entri ke log
+  async function muatDataTanpaLog() {
+    const res = await fetch(BASE);
+    const json = await res.json();
+    const tbody = document.getElementById("isiTabel");
+    tbody.innerHTML = "";
+    (json.data || []).forEach((m) => {
+      const tr = document.createElement("tr");
+      [m.id, m.nim, m.nama, m.prodi].forEach((v) => {
+        const td = document.createElement("td");
+        td.textContent = v;
+        tr.appendChild(td);
+      });
+      const aksi = document.createElement("td");
+      aksi.className = "aksi";
+      aksi.appendChild(tombol("Detail", "hijau", () => detail(m.id)));
+      aksi.appendChild(tombol("Edit", "kuning", () => mulaiEdit(m)));
+      aksi.appendChild(tombol("Hapus", "merah", () => hapus(m.id)));
+      tr.appendChild(aksi);
+      tbody.appendChild(tr);
+    });
+    if (!tbody.children.length) tbody.innerHTML = '<tr><td colspan="5" class="kosong">Belum ada data.</td></tr>';
+  }
+
+  muatData();
+</script>
+</body>
+</html>
